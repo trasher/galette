@@ -43,6 +43,7 @@ use Galette\Core\GaletteMail as GaletteMail;
 use Galette\Core\Password as Password;
 use Galette\Repository\Groups as Groups;
 use Galette\Repository\Members as Members;
+use Galette\Filters\MembersList as MembersList;//#evol 55
 
 /**
  * Member class for galette
@@ -784,7 +785,38 @@ class Adherent
         }
     }
 
-    /**
+//--------------------------------------->
+//modification ajouté le 25/09/14 par Amaury Froment pour l'evol #43 interdiction doubons/homonymes
+
+
+	/**
+	 * Exécute une requête SQL pour trouver le profil doublon
+	 * Retourne 1 si doublon, 0 sinon
+	 * 
+	 * @param nouvel inscrit avec prenom, nom, date de naissance
+	 */
+	public function is_doublon($nom, $prenom, $ddn) 
+		{
+		global $zdb;
+		$result=0;
+		$ddn2 = \DateTime::createFromFormat('j/m/Y',$ddn);
+		$ddn2 = $ddn2->format('Y-m-d');
+		$select = new \Zend_Db_Select($zdb->db);
+		$select->from(PREFIX_DB . self::TABLE)
+			 ->where('nom_adh = ?', $nom)
+			 ->where('prenom_adh = ?', $prenom)
+			 ->where('ddn_adh = ?', $ddn2);
+		if ($select->query()->rowCount() > 0) 
+			{
+			//echo('res>0');
+			$result=1;
+			}//fin du if
+			
+		return $result;
+		}//fin de la fonction
+//-------------------------------->fin de l'ajout d'Amaury
+					
+   /**
      * Check posted values validity
      *
      * @param array $values   All values to check, basically the $_POST array
@@ -807,7 +839,7 @@ class Adherent
             unset($values['societe_adh']);
         }
 
-        foreach ( $fields as $key ) {
+       foreach ( $fields as $key ) {
             //first of all, let's sanitize values
             $key = strtolower($key);
             $prop = '_' . $this->_fields[$key]['propname'];
@@ -845,13 +877,18 @@ class Adherent
 
                 // now, check validity
                 if ( $value != '' ) {
+					
+					
                     switch ( $key ) {
                     // dates
-                    case 'date_crea_adh':
-                    case 'ddn_adh':
-                        try {
+					
+					//--------------------------------------->
+					//modification ajouté le 12/07/14 par Amaury Froment pour corriger le bug sur les dates du type: 14/07/0014 + bug #38 date du jour
+					case 'date_crea_adh':
+					    try {
                             $d = \DateTime::createFromFormat(_T("Y-m-d"), $value);
-                            if ( $d === false ) {
+							
+							if ( $d === false ) {
                                 //try with non localized date
                                 $d = \DateTime::createFromFormat("Y-m-d", $value);
                                 if ( $d === false ) {
@@ -879,6 +916,57 @@ class Adherent
                             );
                         }
                         break;
+                    case 'ddn_adh':
+                        try {
+                            $d = \DateTime::createFromFormat(_T("Y-m-d"), $value);
+							
+							$birthdate= \DateTime::createFromFormat('j/m/Y',$value);
+							$today= new \DateTime("now");
+							//echo('today:');
+							//var_dump($today);
+							//echo('birthdate:');
+							//var_dump($birthdate);
+							//echo('diff:');
+							$age=$birthdate->diff($today);
+							//var_dump($age->format('%R%Y'));
+
+							$age=$age->format('%Y');
+							if($age>200 || $age<1)
+								{
+								$d=false;
+								}
+									
+							
+							if ( $d === false ) {
+                                //try with non localized date
+                                $d = \DateTime::createFromFormat("Y-m-d", $value);
+                                if ( $d === false ) {
+                                    throw new \Exception('Incorrect format');
+                                }
+                            }
+                            $this->$prop = $d->format('Y-m-d');
+                        } catch (\Exception $e) {
+                            Analog::log(
+                                'Wrong date format. field: ' . $key .
+                                ', value: ' . $value . ', expected fmt: ' .
+                                _T("Y-m-d") . ' | ' . $e->getMessage(),
+                                Analog::INFO
+                            );
+                            $errors[] = str_replace(
+                                array(
+                                    '%date_format',
+                                    '%field'
+                                ),
+                                array(
+                                    _T("Y-m-d"),
+                                    $this->_fields[$key]['label']
+                                ),
+                                _T("- Wrong date format (%date_format) for %field!")
+                            );
+                        }
+                        break;
+					//-------------------------------->fin de l'ajout d'Amaury
+					
                     case 'titre_adh':
                         if ( $value !== null && $value !== '' ) {
                             if ( $value == '-1' ) {
@@ -1256,6 +1344,65 @@ class Adherent
             );
         }
     }
+//evol #55
+ /**
+     * Update member modification date
+     *
+     * @return void
+     */
+    public function updateModificationDate()
+    {
+        global $zdb;
+
+        try {
+            $edit = $zdb->db->update(
+                PREFIX_DB . self::TABLE,
+                array('date_modif_adh' => date('Y-m-d')),
+                self::PK . '=' . $this->_id
+            );
+            $this->_modification_date = date('Y-m-d');
+        } catch (\Exception $e) {
+            Analog::log(
+                'Something went wrong updating modif date :\'( | ' .
+                $e->getMessage() . "\n" . $e->getTraceAsString(),
+                Analog::ERROR
+            );
+        }
+    }
+	//the function istaff is not reliable for manager or staff that are not member
+	//return $staff 0/1
+	public function isStaff2()
+    {
+	 $staff=false;
+	 
+	 $filters_staff = new MembersList();
+	 $members_staff = new Members($filters_staff);
+	 $members_list_staff = $members_staff->getStaffMembersList(1,null,0,0);
+	 $adherent_staff=new Adherent();
+	 foreach ( $members_list_staff as  $keystaff => $valuestaff ) 
+		{
+		$adherent_staff=$members_list_staff[$keystaff];
+		if($this->_id==$adherent_staff->_id)
+			{
+			$staff=true;
+			}
+		}
+		
+	
+	 $groups_for_managers=array();
+	 //$groups_for_managers=Groups::getList();
+	 $groups_for_managers=Groups::loadManagedGroups($this->_id);
+	
+		if(count($groups_for_managers)>0)
+			{
+			$staff=true;
+				
+			}	
+		
+		return $staff;
+    }
+	
+//fin evol #55
 
     /**
     * Global getter method

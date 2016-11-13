@@ -103,7 +103,7 @@ $member->load($id_adh);
 // flagging fields visibility
 $fc = new FieldsConfig(Adherent::TABLE, $member->fields);
 $visibles = $fc->getVisibilities();
-
+/*
 if ( $login->id != $id_adh && !$login->isAdmin() && !$login->isStaff() ) {
     //check if requested member is part of managed groups
     $groups = $member->groups;
@@ -120,7 +120,7 @@ if ( $login->id != $id_adh && !$login->isAdmin() && !$login->isStaff() ) {
         $member->load($login->id);
     }
 }
-
+*/
 $navigate = array();
 
 if ( isset($session['filters']['members']) ) {
@@ -193,7 +193,7 @@ if ( isset($session['account_success']) ) {
     unset($session['account_success']);
 }
 $tpl->assign('success_detected', $success_detected);
-$content = $tpl->fetch('voir_adherent.tpl');
+$content = $tpl->fetch('voir_adherent_read_only.tpl');
 $tpl->assign('content', $content);
 $tpl->display('page.tpl');
 
